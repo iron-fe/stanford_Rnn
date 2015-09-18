@@ -110,7 +110,7 @@ class PhraseSentimentPredictor:
             d=classifier_args['d']
         else:
             d=50
-        words_vectors=np.random.rand(d,len(self.vocabulary))*2*0.05-0.05
+        words_vectors=np.random.rand(d,len(self.vocabulary))*2*0.05-0.05    #d行 len列 的矩阵
         classifier = _valid_classifiers[classifier](vocab=len(self.vocabulary),words_vectors=words_vectors,**classifier_args)
 
         #classifier=rnn.RNN(d=50,cat=4,vocab=len(self.vocabulary),alpha=0.2,words_vectors=words_vectors,lambdaW=10**(-5),lambdaCat=10**(-7),lambdaL=10**(-4))
@@ -118,7 +118,7 @@ class PhraseSentimentPredictor:
         self.pipeline = pipeline
         self.classifier = classifier
 
-    
+
     def fit(self, phrases, y=None):
         """
         `phrases` should be a list of `Datapoint` instances.
@@ -142,7 +142,7 @@ class PhraseSentimentPredictor:
         `phrases` should be a list of `Datapoint` instances.
         Return value is a list of `str` instances with the predicted sentiments.
         """
-#        Z = phrases        
+#        Z = phrases
         Z = self.pipeline.transform(phrases)
 #        print(Z)
         labels = self.classifier.predict(Z)

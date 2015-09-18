@@ -1,6 +1,5 @@
 <<<<<<< HEAD
-# Semi-supervised Recursive Autoencoders for Opinion Detection on Twitter
-Problem description
+# 基于中文的Semi-supervised Recursive Autoencoders 
 ------------------------------------------------------
 Twitter data from the first 2008 Presidential debate
 Total number of tweets is 3,238

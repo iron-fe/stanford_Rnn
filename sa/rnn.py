@@ -60,14 +60,23 @@ class RNN:
 
     def forwardProp(self,allKids,words_embedded,updateWlab,label,theta,freq):
         (W1,W2,W3,W4,Wlab,b1,b2,b3,blab,WL)=self.getParams(theta)
+        #sl是words_embedded的个数，一句话单词的个数
+        # allKids一开始没有值，是因为训练之前，语法树本来就没有构建完，树结构是训练完了以后才出现的。但是，allkids内容应该会随着算法的进行而变化
         sl=np.size(words_embedded,1)
         sentree=rnntree.rnntree(self.d,sl,words_embedded)
         collapsed_sentence = range(sl)
+
+        # updateWlab主要是获得情感误差，修正情感的权值
+        # 情感误差也是需要p作为输入的，因此也需要计算出p
         if updateWlab:
             temp_label=np.zeros(self.cat)
+            #假设cat ＝ 4， temp_label就是(0,0,0,0)。下面这句话的意思是label对应的位置为1
             temp_label[label-1]=1.0
             nodeUnder = np.ones([2*sl-1,1])
 
+            # 这个for循环是计算出，某个节点底下一共有多少个子节点
+            # kids存了两个值，分别代表左右孩子。
+            # 可以推测出，allkids存的东西，allkids[i]代表第i个非叶子节点，allkids[i][0]是左孩子，allkids[i][1]是右孩子
             for i in range(sl,2*sl-1): # calculate n1, n2 and n1+n2 for each node in the sensentree and store in nodeUnder
                 kids = allKids[i]
                 n1 = nodeUnder[kids[0]]
@@ -79,8 +88,12 @@ class RNN:
             sentree.catDelta_out = np.zeros([self.d,2*sl-1])
 
             # classifier on single words
+            # 处理所有单词，即叶子节点
+            # 这里有个问题就是，为什么叶子节点也要计算情感误差
             for i in range(sl):
                 sm = softmax(np.dot(Wlab,words_embedded[:,i]) + blab)
+                #这里不管情感误差是如何计算的，sentree.nodeScores存的是情感误差没错了。
+                #sentree.catDelta存的什么不清楚，但是和情感误差有关
                 lbl_sm = (1-self.alpha)*(temp_label - sm)
                 sentree.nodeScores[i] = 1.0/2.0*(np.dot(lbl_sm,(temp_label- sm)))
                 sentree.catDelta[:, i] = -np.dot(lbl_sm,softmax_prime(sm))
@@ -91,13 +104,15 @@ class RNN:
             #sentree.nodeScores[:sl] = 1/2*(lbl_sm.*(label(:,ones(sl,1)) - sm))
             #sentree.catDelta[:, :sl] = -(lbl_sm).*sigmoid_prime(sm)
 
+            #超过sl的部分是单词的父亲节点
             for i in range(sl,2*sl-1):
                 kids = allKids[i]
-
+                #c1,c2,是左右孩子的向量
                 c1 = sentree.nodeFeatures[:,kids[0]]
                 c2 = sentree.nodeFeatures[:,kids[1]]
 
                 # Eq. [2] in the paper: p = f(W[1][c1 c2] + b[1])
+                #计算p，显然p是个数值，即得分，用于判断哪两个节点合并
                 p = tanh(np.dot(W1,c1) + np.dot(W2,c2) + b1)
 
                 # See last paragraph in Section 2.3
@@ -105,7 +120,8 @@ class RNN:
 
                 # Eq. (7) in the paper (for special case of 1d label)
                 #sm = sigmoid(np.dot(Wlab,p_norm1) + blab)
-                sm=softmax(np.dot(Wlab,p_norm1) + blab)
+                #这里是计算节点的情感标签，sm
+                sm = softmax(np.dot(Wlab,p_norm1) + blab)
                 beta=0.5
                 #lbl_sm = beta * (1.0-self.alpha)*(label - sm)
                 lbl_sm = beta * (1.0-self.alpha)*(temp_label - sm)
@@ -124,11 +140,19 @@ class RNN:
 
             sentree.kids = allKids
         else:
+            # 这里主要是计算重构误差
             # Reconstruction Error
             for j in range(sl-1):
                 size2=np.size(words_embedded,1)
-                c1 = words_embedded[:,0:-1]
-                c2 = words_embedded[:,1:]
+
+                """
+                 经过测试，p有多个值
+                 也就不难怪这里c1，c2里面分别存了多个单词的向量
+                 因此，这个算法并不是一个个依次算p的，而是一次性一起算出来p
+                 也因此J的值应该也是有多个值。代表两两单词计算的不同结果。
+                """
+                c1 = words_embedded[:,0:-1] # 去掉最后一个单词
+                c2 = words_embedded[:,1:]  # 去掉第一个单词
 
                 freq1 = freq[0:-1]
                 freq2 = freq[1:]
@@ -152,16 +176,22 @@ class RNN:
                 J_min= min(J)
                 J_minpos=np.argmin(J)
 
+                """
+                只有非叶子节点才会有重构节点，因此，sentree.node_y1c1需要从sl+j开始存y1c1.
+                """
                 sentree.node_y1c1[:,sl+j] = y1c1[:,J_minpos]
                 sentree.node_y2c2[:,sl+j] = y2c2[:,J_minpos]
                 sentree.nodeDelta_out1[:,sl+j] = np.dot(norm1tanh_prime(y1_unnormalized[:,J_minpos]) , y1c1[:,J_minpos])
                 sentree.nodeDelta_out2[:,sl+j] = np.dot(norm1tanh_prime(y2_unnormalized[:,J_minpos]) , y2c2[:,J_minpos])
 
+                #一对节点被选中以后，需要删除words_embedded对应的向量
+                #还要把合成的节点加入words_embedded
                 words_embedded=np.delete(words_embedded,J_minpos+1,1)
                 words_embedded[:,J_minpos]=p_norm1[:,J_minpos]
                 sentree.nodeFeatures[:, sl+j] = p_norm1[:,J_minpos]
                 sentree.nodeFeatures_unnormalized[:, sl+j]= p[:,J_minpos]
                 sentree.nodeScores[sl+j] = J_min
+                # pp存的可能是父节点信息，因为两个孩子拥有同一个父亲
                 sentree.pp[collapsed_sentence[J_minpos]] = sl+j
                 sentree.pp[collapsed_sentence[J_minpos+1]] = sl+j
                 sentree.kids[sl+j,:] = [collapsed_sentence[J_minpos], collapsed_sentence[J_minpos+1]]
@@ -173,6 +203,10 @@ class RNN:
 
                 collapsed_sentence=np.delete(collapsed_sentence,J_minpos+1)
                 collapsed_sentence[J_minpos]=sl+j
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print(sentree.pp)
+            print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+            print(sentree.kids)
         return sentree
 
     def backProp(self,sentree,updateWcat,words_embedded,gradW1,gradW2,gradW3,gradW4,gradWlab,gradb1,gradb2,gradb3,gradblab,gradL,theta):
@@ -270,6 +304,11 @@ class RNN:
             allKids=[[]]*num_sent
 
         for i in range(num_sent):
+            """
+            X是数据，数据是与vocabulary对应的数字，x是某一个句子，x是个数组，含有多个数值
+            words_vectors[:,x]就等于把x对应单词的向量提取出来，赋值给words_embedded。
+            words_embedded就是一组向量
+            """
             x=X[i]
             sl=len(x)
             L=WL[:,x]
@@ -331,6 +370,7 @@ class RNN:
         return (gradW1_total,gradW2_total,gradW3_total,gradW4_total,gradWlab_total,gradb1_total,gradb2_total,gradb3_total,gradblab_total,gradL_total,cost_total,allKids)
 
     def RAECost(self,theta,X,y,freq):
+        #进行两次computeGrad，一次没有allkids，updateWcat为false，一次有allkids,updateWlab为True
         (gradW1,gradW2,gradW3,gradW4,gradWlab,gradb1,gradb2,gradb3,gradblab,gradL,cost,allKids)=\
             self.computeGrad(theta,X,y,None,False,self.alpha,freq)
 
@@ -401,7 +441,7 @@ class RNN:
             sentree=self.forwardProp([],L,False,None,self.combineParams(),freq)
             topF=sentree.nodeFeatures[:,sl-1]
             avgF=np.mean(sentree.nodeFeatures,1)
-            rtn.append(np.hstack([topF,avgF]))
+            rtn.append(np.hstack([topF,avgF])) #hstack就是把a与b数组合并
         return rtn
 
     def predict(self,X):
@@ -510,8 +550,3 @@ class RNN:
 
         (score,words)=self.supAnalyser(X,freq,vocabulary,10)
         return (vectors1,vectors2,score,words)
-
-
-
-
-
